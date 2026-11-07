@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Animal Memory Match</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Memory Match">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#ff8a5c">
+<style>
+:root{--bg:#fff4d6;--card:#ffffff;--back:#ff8a5c;--back2:#ffb347;--ink:#3b2a1a;--accent:#4cb86b;--shadow:rgba(80,40,0,.25);
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1e2340;--card:#2d3466;--back:#7a5cff;--back2:#b05cff;--ink:#fff6e0;--accent:#4cd98a;--shadow:rgba(0,0,0,.5)}}
+:root[data-theme="dark"]{--bg:#1e2340;--card:#2d3466;--back:#7a5cff;--back2:#b05cff;--ink:#fff6e0;--accent:#4cd98a;--shadow:rgba(0,0,0,.5)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;min-height:100vh;overscroll-behavior:none;touch-action:manipulation;background:var(--bg);color:var(--ink);font-family:"Baloo 2","Comic Sans MS","Chalkboard SE",system-ui,sans-serif;text-align:center;user-select:none}
+.screen{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:clamp(2rem,8vw,3rem);margin:.3em 0}
+.big{font-size:clamp(4rem,22vw,7rem);line-height:1}
+button{font-family:inherit;cursor:pointer;border:0}
+.play{font-size:1.8rem;font-weight:700;color:#fff;background:var(--accent);padding:.5em 1.4em;border-radius:999px;box-shadow:0 6px 0 var(--shadow);margin-top:16px}
+.play:active{transform:translateY(4px);box-shadow:0 2px 0 var(--shadow)}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:1.4rem;font-weight:700;margin-bottom:12px}
+.pill{background:var(--card);padding:.2em .7em;border-radius:999px;box-shadow:0 3px 0 var(--shadow)}
+.icon{font-size:1.6rem;background:var(--card);border-radius:50%;width:52px;height:52px;box-shadow:0 3px 0 var(--shadow)}
+.grid{display:grid;gap:12px;margin:0 auto}
+.cell{aspect-ratio:1;perspective:600px;background:none;padding:0}
+.inner{position:relative;width:100%;height:100%;transition:transform .45s;transform-style:preserve-3d}
+.cell.up .inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;border-radius:18px;display:flex;align-items:center;justify-content:center;backface-visibility:hidden;-webkit-backface-visibility:hidden;box-shadow:0 5px 0 var(--shadow)}
+.front{background:linear-gradient(135deg,var(--back),var(--back2));font-size:2.4rem;color:#fff}
+.back{background:var(--card);transform:rotateY(180deg);font-size:clamp(2.5rem,13vw,4.5rem)}
+.cell.done .back{background:#c8f3d2;animation:pop .5s}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .cell.done .back{background:#2f7a4f}}
+@keyframes pop{50%{transform:rotateY(180deg) scale(1.15)}}
+.stars{font-size:3rem;letter-spacing:.1em;margin:8px 0}
+.fall{position:fixed;top:-10vh;font-size:2rem;animation:fall 2.5s linear forwards;pointer-events:none}
+@keyframes fall{to{transform:translateY(115vh) rotate(360deg)}}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="screen" id="start">
+  <div class="big">🐶🐱</div>
+  <h1>Animal Memory Match</h1>
+  <p style="font-size:1.4rem">Flip the cards and find the animal twins!</p>
+  <button class="play" id="go">▶ Play</button>
+  <p style="font-size:1rem;opacity:.7">🔊 Turn your sound on to hear the animals talk</p>
+</div>
+
+<div class="screen" id="game" hidden>
+  <div class="bar">
+    <span class="pill" id="lvl">Level 1</span>
+    <span class="pill" id="sc">⭐ 0</span>
+    <button class="icon" id="snd" aria-label="Voice on or off">🔊</button>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<div class="screen" id="win" hidden>
+  <div class="big">🎉</div>
+  <h1>Great job!</h1>
+  <div class="stars" id="stars"></div>
+  <button class="play" id="next">Next ▶</button>
+</div>
+
+<script>
+const ANIMALS=[["🐶","Dog"],["🐱","Cat"],["🐘","Elephant"],["🦁","Lion"],["🐵","Monkey"],["🐸","Frog"],["🐼","Panda"],["🐰","Rabbit"],["🐯","Tiger"],["🐢","Turtle"]];
+const LEVELS=[3,4,6];
+let level=0,total=0,voiceOn=true,first=null,lock=false,matched=0,pairs=0,moves=0,voice=null;
+const $=id=>document.getElementById(id);
+
+function pickVoice(){
+  const v=speechSynthesis.getVoices().filter(x=>/^en/i.test(x.lang));
+  voice=v.find(x=>/samantha|zira|google uk english female|karen|tessa|female/i.test(x.name))||v[0]||null;
+}
+if("speechSynthesis" in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
+function say(t){
+  if(!voiceOn||!("speechSynthesis" in window))return;
+  try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);
+    if(voice)u.voice=voice;u.rate=.85;u.pitch=1.2;speechSynthesis.speak(u)}catch(e){}
+}
+let ac;
+function tone(freqs,dur=.15){
+  try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+  freqs.forEach((f,i)=>{const o=ac.createOscillator(),g=ac.createGain();o.type="sine";o.frequency.value=f;
+    const t=ac.currentTime+i*dur;g.gain.setValueAtTime(.15,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);
+    o.connect(g);g.connect(ac.destination);o.start(t);o.stop(t+dur)})}catch(e){}
+}
+function show(id){["start","game","win"].forEach(s=>$(s).hidden=s!==id)}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+
+function startLevel(){
+  pairs=LEVELS[Math.min(level,LEVELS.length-1)];matched=0;moves=0;first=null;lock=false;
+  const chosen=shuffle(ANIMALS.slice()).slice(0,pairs);
+  const deck=shuffle(chosen.concat(chosen));
+  const cols=deck.length===6?3:4;
+  const g=$("grid");g.style.gridTemplateColumns="repeat("+cols+",1fr)";g.style.maxWidth=cols===3?"420px":"520px";
+  g.innerHTML="";
+  deck.forEach(([e,n])=>{
+    const b=document.createElement("button");b.className="cell";b.dataset.n=n;
+    b.setAttribute("aria-label","Card");
+    b.innerHTML='<div class="inner"><div class="face front">❓</div><div class="face back">'+e+'</div></div>';
+    b.onclick=()=>flip(b);g.appendChild(b);
+  });
+  $("lvl").textContent="Level "+(level+1);$("sc").textContent="⭐ "+total;
+  show("game");
+  say(level===0?"Find the matching animals! Tap a card to flip it.":"Level "+(level+1)+"! Find the twins.");
+}
+
+function flip(c){
+  if(lock||c.classList.contains("up"))return;
+  c.classList.add("up");tone([520]);say(c.dataset.n);
+  if(!first){first=c;return}
+  moves++;lock=true;const a=first;first=null;
+  if(a.dataset.n===c.dataset.n){
+    setTimeout(()=>{a.classList.add("done");c.classList.add("done");tone([660,880,1040]);
+      say("Yay! Two "+c.dataset.n+"s! You found a match!");matched++;lock=false;
+      if(matched===pairs)setTimeout(win,1800)},900);
+  }else{
+    setTimeout(()=>{say("Oops! Try again.");tone([300,250],.2)},700);
+    setTimeout(()=>{a.classList.remove("up");c.classList.remove("up");lock=false},1700);
+  }
+}
+
+function win(){
+  const s=moves<=pairs+1?3:moves<=pairs*2?2:1;total+=s;
+  $("stars").textContent="⭐".repeat(s);
+  show("win");tone([523,659,784,1046],.18);
+  say("Hooray! You did it! You got "+s+(s===1?" star!":" stars!"));
+  const em=["⭐","🎈","🎉","🌟","🐾"];
+  for(let i=0;i<24;i++){const f=document.createElement("div");f.className="fall";f.textContent=em[i%em.length];
+    f.style.left=Math.random()*95+"vw";f.style.animationDelay=Math.random()*1.2+"s";document.body.appendChild(f);
+    setTimeout(()=>f.remove(),4200)}
+}
+
+$("go").onclick=()=>{level=0;total=0;tone([523]);startLevel()};
+$("next").onclick=()=>{level++;startLevel()};
+$("snd").onclick=()=>{voiceOn=!voiceOn;$("snd").textContent=voiceOn?"🔊":"🔇";
+  if(!voiceOn&&"speechSynthesis" in window)speechSynthesis.cancel();else say("Voice is on")};
+</script>
+</body>
+</html>
